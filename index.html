@@ -1,0 +1,333 @@
+import React, { useState, useEffect, createContext, useContext } from 'react';
+
+// Create Auth Context (simplified for just providing a userId and userName)
+const AuthContext = createContext(null);
+
+// Auth Provider Component
+const AuthProvider = ({ children }) => {
+    const [userName, setUserName] = useState(localStorage.getItem('userName') || '');
+    const [userId] = useState(crypto.randomUUID()); // Simulate a userId - still needed for internal tracking if desired, but not displayed
+
+    // Function to set user name and persist it
+    const setAndPersistUserName = (name) => {
+        setUserName(name);
+        localStorage.setItem('userName', name);
+    };
+
+    return (
+        <AuthContext.Provider value={{ userName, setAndPersistUserName, userId }}>
+            {children}
+        </AuthContext.Provider>
+    );
+};
+
+// Custom hook to use Auth Context
+const useAuth = () => useContext(AuthContext);
+
+// Saree Card Component
+const SareeCard = ({ saree, onClick }) => {
+    return (
+        <div
+            className="bg-white rounded-xl shadow-lg hover:shadow-2xl overflow-hidden transform transition-all duration-300 hover:scale-105 cursor-pointer border-2 border-transparent hover:border-red-300" // Enhanced hover shadow and border
+            onClick={() => onClick(saree)}
+        >
+            <img
+                src={saree.imageUrl || `https://placehold.co/400x300/FFD700/8B0000?text=Elegant+Saree`} // Gold/Maroon placeholder
+                alt={saree.name}
+                className="w-full h-48 object-cover"
+                onError={(e) => { e.target.onerror = null; e.target.src = `https://placehold.co/400x300/FFD700/8B0000?text=Elegant+Saree`; }}
+            />
+            <div className="p-4 bg-gradient-to-t from-yellow-50 to-white"> {/* Lighter gradient */}
+                <h3 className="text-xl font-semibold text-red-800 mb-2">{saree.name}</h3> {/* Reddish tone */}
+                <p className="text-gray-700 mb-2 text-sm md:text-base truncate">{saree.description}</p> {/* Responsive text size */}
+                <p className="text-2xl md:text-3xl font-bold text-orange-700">{saree.price}</p> {/* Responsive text size */}
+            </div>
+        </div>
+    );
+};
+
+// Saree Detail Modal Component
+const SareeDetailModal = ({ saree, onClose }) => {
+    const whatsappNumber = '919876543210'; // Replace with actual WhatsApp number
+    const message = encodeURIComponent(`Hello, I am interested in the Saree: "${saree.name}" (Price: ${saree.price}). Please provide more details.`);
+    const whatsappLink = `https://wa.me/${whatsappNumber}?text=${message}`;
+
+    // Close modal on Escape key press
+    useEffect(() => {
+        const handleEsc = (event) => {
+            if (event.key === 'Escape') {
+                onClose();
+            }
+        };
+        window.addEventListener('keydown', handleEsc);
+        return () => {
+            window.removeEventListener('keydown', handleEsc);
+        };
+    }, [onClose]);
+
+    return (
+        <div
+            className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 overflow-y-auto" // Darker overlay, added overflow-y-auto for small screens
+            onClick={onClose} // Close when clicking outside the modal content
+        >
+            <div
+                className="bg-white rounded-xl shadow-2xl p-6 md:p-8 w-full max-w-3xl relative transform scale-95 opacity-0 animate-scaleIn border border-red-200 my-8" // Increased max-width, subtle border, added margin for small screens
+                onClick={(e) => e.stopPropagation()} // Prevent modal from closing when clicking inside
+            >
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 text-gray-600 hover:text-gray-900 transition-colors duration-200"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+
+                <div className="flex flex-col md:flex-row gap-6 md:gap-8"> {/* Increased gap */}
+                    {/* Image Gallery (simplified to single image for now) */}
+                    <div className="md:w-1/2 flex justify-center items-center"> {/* Centered image */}
+                        <img
+                            src={saree.imageUrl || `https://placehold.co/600x400/FFD700/8B0000?text=Saree+Detail`} // Gold/Maroon placeholder
+                            alt={saree.name}
+                            className="w-full h-auto max-h-80 md:max-h-full rounded-lg object-contain shadow-md border border-gray-200" // object-contain to prevent cropping
+                            onError={(e) => { e.target.onerror = null; e.target.src = `https://placehold.co/600x400/FFD700/8B0000?text=Saree+Detail`; }}
+                        />
+                        {/* You can add more images here for a proper gallery */}
+                        {/* <div className="flex space-x-2 mt-4">
+                            <img src="..." className="w-16 h-16 rounded-md object-cover cursor-pointer" />
+                            <img src="..." className="w-16 h-16 rounded-md object-cover cursor-pointer" />
+                        </div> */}
+                    </div>
+
+                    {/* Saree Details */}
+                    <div className="md:w-1/2 flex flex-col justify-between pt-4 md:pt-0"> {/* Added padding for mobile */}
+                        <div>
+                            <h2 className="text-2xl sm:text-3xl md:text-4xl font-extrabold text-red-900 mb-2 md:mb-3 leading-tight">{saree.name}</h2> {/* Responsive font sizes */}
+                            <p className="text-gray-700 text-sm sm:text-base md:text-lg mb-4 md:mb-5 leading-relaxed">{saree.description}</p> {/* Responsive font sizes */}
+                            <p className="text-3xl sm:text-4xl font-extrabold text-orange-800 mb-6 md:mb-8 tracking-wide">{saree.price}</p> {/* Responsive font sizes */}
+                        </div>
+                        <a
+                            href={whatsappLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block w-full bg-green-600 text-white py-3 md:py-4 px-4 rounded-lg text-center font-semibold text-lg md:text-xl hover:bg-green-700 transition-all duration-300 shadow-xl transform hover:scale-105" // More prominent button, responsive padding
+                        >
+                            Order on WhatsApp
+                        </a>
+                    </div>
+                </div>
+            </div>
+            <style>{`
+                @keyframes scaleIn {
+                    from {
+                        transform: scale(0.95);
+                        opacity: 0;
+                    }
+                    to {
+                        transform: scale(1);
+                        opacity: 1;
+                    }
+                }
+                .animate-scaleIn {
+                    animation: scaleIn 0.3s ease-out forwards;
+                }
+            `}</style>
+        </div>
+    );
+};
+
+// Welcome Page Component (asks for user's name)
+const WelcomePage = () => {
+    const { setAndPersistUserName } = useAuth();
+    const [nameInput, setNameInput] = useState('');
+
+    const handleSubmit = (e) => {
+        e.preventDefault();
+        if (nameInput.trim()) {
+            setAndPersistUserName(nameInput.trim());
+        }
+    };
+
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-red-100 p-4 font-sans"> {/* Lighter, warmer gradient, font-sans */}
+            <div className="bg-white p-8 sm:p-10 rounded-xl shadow-2xl w-full max-w-md text-center border-t-4 border-red-400"> {/* Responsive padding */}
+                <h2 className="text-3xl sm:text-4xl font-extrabold text-red-800 mb-4 sm:mb-6 leading-tight">Welcome to SIRI SAREES DIVINE!</h2> {/* Responsive font sizes */}
+                <p className="text-base sm:text-lg text-gray-700 mb-6 sm:mb-8">Please tell us your name for a personalized experience.</p> {/* Responsive font sizes */}
+                <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6"> {/* Responsive spacing */}
+                    <input
+                        type="text"
+                        value={nameInput}
+                        onChange={(e) => setNameInput(e.target.value)}
+                        placeholder="Enter your name"
+                        className="w-full px-4 py-2 sm:px-5 sm:py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-base sm:text-lg" // Responsive padding and font size
+                        required
+                    />
+                    <button
+                        type="submit"
+                        className="w-full flex justify-center py-2 sm:py-3 px-4 border border-transparent rounded-lg shadow-lg text-lg sm:text-xl font-semibold text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-300 transform hover:scale-105" // Responsive padding and font size
+                    >
+                        Continue
+                    </button>
+                </form>
+            </div>
+        </div>
+    );
+};
+
+// Home Page Component (main content)
+const HomePage = () => {
+    const { userName } = useAuth();
+    const [sarees, setSarees] = useState([]);
+    const [selectedSaree, setSelectedSaree] = useState(null); // State for the saree detail modal
+    const [message, setMessage] = useState('');
+    const [messageType, setMessageType] = useState(''); // 'success' or 'error'
+
+    // Static saree data
+    const staticSarees = [
+        {
+            id: 'saree1',
+            name: 'Kanjeevaram Silk Saree',
+            price: '₹ 15,000',
+            imageUrl: 'https://placehold.co/400x300/FFD700/8B0000?text=Kanjeevaram',
+            description: 'A classic Kanjeevaram silk saree with intricate zari work, perfect for weddings and grand celebrations. Features a rich pallu and traditional motifs.',
+            gallery: ['https://placehold.co/400x300/FFD700/8B0000?text=Kanjeevaram+1', 'https://placehold.co/400x300/FFD700/8B0000?text=Kanjeevaram+2']
+        },
+        {
+            id: 'saree2',
+            name: 'Banarasi Brocade Saree',
+            price: '₹ 12,500',
+            imageUrl: 'https://placehold.co/400x300/E5AA70/8B0000?text=Banarasi',
+            description: 'Elegant Banarasi saree with rich brocade patterns, suitable for grand occasions. Hand-woven with fine silk and metallic threads.',
+            gallery: ['https://placehold.co/400x300/E5AA70/8B0000?text=Banarasi+1', 'https://placehold.co/400x300/E5AA70/8B0000?text=Banarasi+2']
+        },
+        {
+            id: 'saree3',
+            name: 'Chanderi Cotton Silk Saree',
+            price: '₹ 6,800',
+            imageUrl: 'https://placehold.co/400x300/F0E68C/8B0000?text=Chanderi',
+            description: 'Lightweight and comfortable Chanderi saree, ideal for daily wear or casual events. Known for its sheer texture and delicate zari work.',
+            gallery: ['https://placehold.co/400x300/F0E68C/8B0000?text=Chanderi+1', 'https://placehold.co/400x300/F0E68C/8B0000?text=Chanderi+2']
+        },
+        {
+            id: 'saree4',
+            name: 'Patola Silk Saree',
+            price: '₹ 22,000',
+            imageUrl: 'https://placehold.co/400x300/DAA520/8B0000?text=Patola',
+            description: 'Hand-woven Patola silk saree, known for its vibrant colors and geometric patterns. A double ikat weave from Gujarat, India.',
+            gallery: ['https://placehold.co/400x300/DAA520/8B0000?text=Patola+1', 'https://placehold.co/400x300/DAA520/8B0000?text=Patola+2']
+        },
+        {
+            id: 'saree5',
+            name: 'Georgette Floral Saree',
+            price: '₹ 4,500',
+            imageUrl: 'https://placehold.co/400x300/FFB6C1/8B0000?text=Georgette',
+            description: 'Flowy georgette saree with beautiful floral prints, perfect for summer and light occasions. Easy to drape and comfortable.',
+            gallery: ['https://placehold.co/400x300/FFB6C1/8B0000?text=Georgette+1', 'https://placehold.co/400x300/FFB6C1/8B0000?text=Georgette+2']
+        },
+        {
+            id: 'saree6',
+            name: 'Mysore Silk Saree',
+            price: '₹ 9,000',
+            imageUrl: 'https://placehold.co/400x300/F4A460/8B0000?text=Mysore',
+            description: 'Luxurious Mysore silk saree with subtle gold zari borders, known for its soft texture and rich sheen. Ideal for formal events.',
+            gallery: ['https://placehold.co/400x300/F4A460/8B0000?text=Mysore+1', 'https://placehold.co/400x300/F4A460/8B0000?text=Mysore+2']
+        },
+        {
+            id: 'saree7',
+            name: 'Tussar Silk Saree',
+            price: '₹ 8,200',
+            imageUrl: 'https://placehold.co/400x300/CD853F/8B0000?text=Tussar',
+            description: 'Natural golden-hued Tussar silk saree, prized for its unique texture and natural elegance. Often features tribal art or floral motifs.',
+            gallery: ['https://placehold.co/400x300/CD853F/8B0000?text=Tussar+1', 'https://placehold.co/400x300/CD853F/8B0000?text=Tussar+2']
+        },
+        {
+            id: 'saree8',
+            name: 'Bandhani Saree',
+            price: '₹ 5,500',
+            imageUrl: 'https://placehold.co/400x300/F08080/8B0000?text=Bandhani',
+            description: 'Vibrant Bandhani saree with traditional tie-dye patterns, originating from Rajasthan and Gujarat. Perfect for festive occasions.',
+            gallery: ['https://placehold.co/400x300/F08080/8B0000?text=Bandhani+1', 'https://placehold.co/400x300/F08080/8B0000?text=Bandhani+2']
+        },
+    ];
+
+    useEffect(() => {
+        // Load sarees from localStorage, or use static ones if none are stored
+        const storedSarees = JSON.parse(localStorage.getItem('sarees') || '[]');
+        if (storedSarees.length > 0) {
+            setSarees(storedSarees);
+        } else {
+            setSarees(staticSarees);
+            localStorage.setItem('sarees', JSON.stringify(staticSarees));
+        }
+    }, []);
+
+    const handleSareeClick = (saree) => {
+        setSelectedSaree(saree);
+    };
+
+    const handleCloseModal = () => {
+        setSelectedSaree(null);
+    };
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-yellow-50 to-red-50 font-sans text-gray-800"> {/* Lighter, warmer background, darker text for contrast, font-sans */}
+            {/* Header */}
+            <header className="bg-gradient-to-r from-red-600 to-yellow-600 shadow-xl py-4 px-6 sm:py-5 sm:px-8 flex flex-col sm:flex-row justify-between items-center sticky top-0 z-10"> {/* Responsive padding */}
+                <div className="flex items-center mb-2 sm:mb-0"> {/* Added margin for mobile */}
+                    {/* Logo Placeholder - Replace src with your actual logo path */}
+                    <img
+                        src="https://placehold.co/50x50/8B0000/FFD700?text=Logo" // Dark red/gold themed placeholder
+                        alt="SIRI SAREES DIVINE Logo"
+                        className="h-10 w-10 sm:h-12 sm:w-12 mr-3 sm:mr-4 rounded-full border-2 border-yellow-300 shadow-md" // Responsive size
+                    />
+                    <h1 className="text-3xl sm:text-4xl font-extrabold text-yellow-100 tracking-wide">SIRI SAREES DIVINE</h1> {/* Responsive font size */}
+                </div>
+                <div className="flex items-center space-x-3 sm:space-x-4"> {/* Responsive spacing */}
+                    <span className="text-yellow-100 text-base sm:text-lg">Welcome, <span className="font-semibold text-yellow-300">{userName || 'Guest'}</span>!</span> {/* Responsive font size */}
+                </div>
+            </header>
+
+            {/* Main Content */}
+            <main className="container mx-auto p-6 sm:p-8"> {/* Responsive padding */}
+                {message && (
+                    <div className={`p-4 mb-6 sm:mb-8 rounded-lg text-center font-medium ${messageType === 'success' ? 'bg-green-700 text-green-100' : 'bg-red-700 text-red-100'} shadow-md text-sm sm:text-base`}> {/* Responsive padding and font size */}
+                        {message}
+                    </div>
+                )}
+
+                {/* Sarees Grid */}
+                {sarees.length === 0 ? (
+                    <div className="text-center text-gray-600 text-lg sm:text-xl py-10 sm:py-12">
+                        No exquisite sarees available yet.
+                    </div>
+                ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 sm:gap-8 lg:gap-10"> {/* Responsive gap */}
+                        {sarees.map((saree) => (
+                            <SareeCard key={saree.id} saree={saree} onClick={handleSareeClick} />
+                        ))}
+                    </div>
+                )}
+            </main>
+
+            {/* Saree Detail Modal */}
+            {selectedSaree && (
+                <SareeDetailModal saree={selectedSaree} onClose={handleCloseModal} />
+            )}
+        </div>
+    );
+};
+
+// Component to handle conditional rendering based on userName
+const MainContent = () => {
+    const { userName } = useAuth();
+    return userName ? <HomePage /> : <WelcomePage />;
+};
+
+// Main App Component
+export default function App() {
+    return (
+        <AuthProvider>
+            <MainContent />
+        </AuthProvider>
+    );
+}
