@@ -1,10 +1,37 @@
-]<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SIRI SAREE DIVINE</title>
+    <title id="dynamic-page-title">SIRI SAREE DIVINE</title>
+    <!-- Tailwind CSS CDN -->
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <!-- Firebase SDKs -->
+    <script type="module">
+        // These imports make Firebase functions available globally under window.firebase
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        // Firebase Storage imports
+        import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+
+
+        // Expose Firebase modules globally for use in the main script block
+        window.firebase = {
+            initializeApp,
+            getAuth, signInAnonymously, onAuthStateChanged, signInWithEmailAndPassword, signOut,
+            getFirestore, doc, setDoc, addDoc, updateDoc, deleteDoc, onSnapshot, collection, query, where, getDocs,
+            // Expose Storage functions
+            getStorage, ref, uploadBytes, getDownloadURL, deleteObject
+        };
+
+        // Global Firebase instances (will be initialized on window.onload)
+        window.firebaseApp = null;
+        window.db = null;
+        window.auth = null;
+        window.storage = null; // Firebase Storage instance
+        window.userId = null; // Will store the current user's UID or a random ID for anonymous
+    </script>
     <style>
         /* Custom styles to enhance Tailwind for this design */
         body {
@@ -36,120 +63,552 @@
             max-height: 90vh; /* Limit height to allow scrolling */
             overflow-y: auto;
         }
+
+        /* Admin specific styles */
+        .admin-link {
+            cursor: pointer;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+        .admin-link:hover {
+            text-decoration: underline;
+        }
+        .image-preview-item {
+            position: relative;
+            display: inline-block;
+            margin: 0.5rem;
+            border: 1px solid #ccc;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        .image-preview-item img {
+            width: 96px; /* h-24 equivalent */
+            height: 96px; /* w-24 equivalent */
+            object-fit: cover;
+        }
+        .image-preview-item .delete-img-btn {
+            position: absolute;
+            top: 0.25rem;
+            right: 0.25rem;
+            background-color: rgba(255, 0, 0, 0.7);
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .image-preview-item .delete-img-btn:hover {
+            background-color: rgba(255, 0, 0, 0.9);
+        }
     </style>
 </head>
 <body class="font-sans text-gray-800">
     <div id="app-root" class="min-h-screen flex flex-col">
+        <!-- Content will be dynamically loaded here by JavaScript -->
+    </div>
+
+    <!-- Custom Message Modal Container -->
+    <div id="message-modal-container" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 md:p-8 w-full max-w-sm relative transform scale-95 opacity-0 animate-scaleIn border">
+            <h3 id="message-modal-title" class="text-xl font-bold mb-4"></h3>
+            <p id="message-modal-content" class="text-gray-700 mb-6"></p>
+            <button id="message-modal-close-btn" class="w-full bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors duration-300">OK</button>
         </div>
+    </div>
 
-    <script>
-        // --- Utility Functions ---
+    <!-- Custom Confirm Modal Container -->
+    <div id="confirm-modal-container" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-xl shadow-2xl p-6 md:p-8 w-full max-w-sm relative transform scale-95 opacity-0 animate-scaleIn border">
+            <h3 id="confirm-modal-title" class="text-xl font-bold mb-4"></h3>
+            <p id="confirm-modal-content" class="text-gray-700 mb-6"></p>
+            <div class="flex justify-end space-x-4">
+                <button id="confirm-modal-cancel-btn" class="bg-gray-300 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-400 transition-colors duration-300">No</button>
+                <button id="confirm-modal-ok-btn" class="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition-colors duration-300">Yes</button>
+            </div>
+        </div>
+    </div>
 
-        // Function to get user name from local storage
-        function getUserName() {
-            return localStorage.getItem('userName') || '';
+
+    <script type="module">
+        // --- Firebase Configuration ---
+        // These keys are public-facing for client-side Firebase SDKs.
+        // For highly sensitive environments, consider server-side rendering or a proxy.
+        const FIREBASE_API_KEY = "AIzaSyAr5JAnpe9r-ORro7lJYUUsyk3GxQ4RrZo";
+        const FIREBASE_AUTH_DOMAIN = "siri-saree-divine.firebaseapp.com";
+        const FIREBASE_PROJECT_ID = "siri-saree-divine";
+        const FIREBASE_STORAGE_BUCKET = "siri-saree-divine.firebasestorage.app";
+        const FIREBASE_MESSAGING_SENDER_ID = "1016991801883";
+        const FIREBASE_APP_ID = "1:1016991801883:web:917698ec65c2a210164ebe";
+        const FIREBASE_MEASUREMENT_ID = "G-SJFL3VRJXN"; // Not used directly by Firestore/Auth SDKs in this app
+
+        const firebaseConfig = {
+            apiKey: FIREBASE_API_KEY,
+            authDomain: FIREBASE_AUTH_DOMAIN,
+            projectId: FIREBASE_PROJECT_ID,
+            storageBucket: FIREBASE_STORAGE_BUCKET,
+            messagingSenderId: FIREBASE_MESSAGING_SENDER_ID,
+            appId: FIREBASE_APP_ID,
+            measurementId: FIREBASE_MEASUREMENT_ID
+        };
+
+        // The appId used in Firestore rules
+        const appId = FIREBASE_APP_ID;
+
+        // --- GLOBAL ADMIN IDENTIFIER (NOT CREDENTIALS) ---
+        // This email is used *only* to check if the *currently authenticated user's email*
+        // matches the known admin email. The actual login is handled by Firebase Auth.
+        const KNOWN_ADMIN_EMAIL = 'admin@siri.com'; // Ensure this matches an admin user created in Firebase Auth
+
+        // --- Global State Variables ---
+        let userName = '';
+        let isAdminLoggedInState = false;
+        let sarees = [];
+        let websiteSettings = {
+            logoUrl: 'https://placehold.co/50x50/8B0000/FFD700?text=Logo',
+            websiteTitle: 'SIRI SAREE DIVINE'
+        };
+
+        // --- Custom Alert/Confirm Modals ---
+        /**
+         * Displays a custom message modal.
+         * @param {string} title - The title of the message modal.
+         * @param {string} message - The content message of the modal.
+         * @param {'success'|'error'|'info'} type - The type of message to determine styling.
+         * @returns {Promise<void>} A promise that resolves when the modal is closed.
+         */
+        function showMessageModal(title, message, type = 'info') {
+            return new Promise((resolve) => {
+                const modalContainer = document.getElementById('message-modal-container');
+                const modalTitle = document.getElementById('message-modal-title');
+                const modalContent = document.getElementById('message-modal-content');
+                const closeBtn = document.getElementById('message-modal-close-btn');
+                const modalDialog = modalContainer.querySelector('div');
+
+                modalTitle.textContent = title;
+                modalContent.textContent = message;
+
+                // Set border color based on type
+                modalDialog.classList.remove('border-red-400', 'border-green-400', 'border-blue-400');
+                if (type === 'error') {
+                    modalDialog.classList.add('border-red-400');
+                    modalTitle.classList.remove('text-blue-800', 'text-green-800');
+                    modalTitle.classList.add('text-red-800');
+                    closeBtn.classList.remove('bg-blue-600', 'bg-green-600', 'hover:bg-blue-700', 'hover:bg-green-700');
+                    closeBtn.classList.add('bg-red-600', 'hover:bg-red-700');
+                } else if (type === 'success') {
+                    modalDialog.classList.add('border-green-400');
+                    modalTitle.classList.remove('text-red-800', 'text-blue-800');
+                    modalTitle.classList.add('text-green-800');
+                    closeBtn.classList.remove('bg-red-600', 'bg-blue-600', 'hover:bg-red-700', 'hover:bg-blue-700');
+                    closeBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                } else { // info or default
+                    modalDialog.classList.add('border-blue-400');
+                    modalTitle.classList.remove('text-red-800', 'text-green-800');
+                    modalTitle.classList.add('text-blue-800');
+                    closeBtn.classList.remove('bg-red-600', 'bg-green-600', 'hover:bg-red-700', 'hover:bg-green-700');
+                    closeBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                }
+
+                modalContainer.classList.remove('hidden');
+                modalDialog.classList.remove('opacity-0', 'scale-95');
+                modalDialog.classList.add('opacity-100', 'scale-100');
+
+                const handleClose = () => {
+                    modalDialog.classList.remove('opacity-100', 'scale-100');
+                    modalDialog.classList.add('opacity-0', 'scale-95');
+                    setTimeout(() => {
+                        modalContainer.classList.add('hidden');
+                        closeBtn.removeEventListener('click', handleClose);
+                        modalContainer.removeEventListener('click', handleBackgroundClose);
+                        document.removeEventListener('keydown', handleEscClose);
+                        resolve();
+                    }, 300); // Allow animation to finish
+                };
+
+                const handleBackgroundClose = (e) => {
+                    if (e.target === modalContainer) {
+                        handleClose();
+                    }
+                };
+
+                const handleEscClose = (e) => {
+                    if (e.key === 'Escape') {
+                        handleClose();
+                    }
+                };
+
+                closeBtn.addEventListener('click', handleClose);
+                modalContainer.addEventListener('click', handleBackgroundClose);
+                document.addEventListener('keydown', handleEscClose);
+            });
         }
 
-        // Function to set user name in local storage
+        /**
+         * Displays a custom confirmation modal.
+         * @param {string} title - The title of the confirmation modal.
+         * @param {string} message - The content message for the user to confirm.
+         * @returns {Promise<boolean>} A promise that resolves to true if 'Yes' is clicked, false otherwise.
+         */
+        function showConfirmModal(title, message) {
+            return new Promise((resolve) => {
+                const modalContainer = document.getElementById('confirm-modal-container');
+                const modalTitle = document.getElementById('confirm-modal-title');
+                const modalContent = document.getElementById('confirm-modal-content');
+                const okBtn = document.getElementById('confirm-modal-ok-btn');
+                const cancelBtn = document.getElementById('confirm-modal-cancel-btn');
+                const modalDialog = modalContainer.querySelector('div');
+
+                modalTitle.textContent = title;
+                modalContent.textContent = message;
+                
+                // Always use a warning/danger border for confirmation
+                modalDialog.classList.remove('border-green-400', 'border-blue-400');
+                modalDialog.classList.add('border-red-400');
+                modalTitle.classList.remove('text-blue-800', 'text-green-800');
+                modalTitle.classList.add('text-red-800');
+
+
+                modalContainer.classList.remove('hidden');
+                modalDialog.classList.remove('opacity-0', 'scale-95');
+                modalDialog.classList.add('opacity-100', 'scale-100');
+
+                const cleanup = () => {
+                    modalDialog.classList.remove('opacity-100', 'scale-100');
+                    modalDialog.classList.add('opacity-0', 'scale-95');
+                    setTimeout(() => {
+                        modalContainer.classList.add('hidden');
+                        okBtn.removeEventListener('click', handleOk);
+                        cancelBtn.removeEventListener('click', handleCancel);
+                        modalContainer.removeEventListener('click', handleBackgroundClose);
+                        document.removeEventListener('keydown', handleEscClose);
+                    }, 300); // Allow animation to finish
+                };
+
+                const handleOk = () => {
+                    cleanup();
+                    resolve(true);
+                };
+
+                const handleCancel = () => {
+                    cleanup();
+                    resolve(false);
+                };
+
+                const handleBackgroundClose = (e) => {
+                    if (e.target === modalContainer) {
+                        handleCancel(); // Treat background click as cancel
+                    }
+                };
+
+                const handleEscClose = (e) => {
+                    if (e.key === 'Escape') {
+                        handleCancel(); // Treat Escape key as cancel
+                    }
+                };
+
+                okBtn.addEventListener('click', handleOk);
+                cancelBtn.addEventListener('click', handleCancel);
+                modalContainer.addEventListener('click', handleBackgroundClose);
+                document.addEventListener('keydown', handleEscClose);
+            });
+        }
+
+
+        // --- Firebase Initialization and Listeners ---
+        async function initFirebase() {
+            try {
+                window.firebaseApp = window.firebase.initializeApp(firebaseConfig);
+                window.db = window.firebase.getFirestore(window.firebaseApp);
+                window.auth = window.firebase.getAuth(window.firebaseApp);
+                window.storage = window.firebase.getStorage(window.firebaseApp); // Initialize Firebase Storage
+
+                // Sign in anonymously for public read access.
+                await window.firebase.signInAnonymously(window.auth);
+                console.log("Signed in anonymously to Firebase.");
+
+                // Listen for authentication state changes (e.g., user logs in/out)
+                window.firebase.onAuthStateChanged(window.auth, (user) => {
+                    if (user) {
+                        window.userId = user.uid;
+                        // Check if the authenticated user's email matches the known admin email
+                        isAdminLoggedInState = (user.email === KNOWN_ADMIN_EMAIL);
+                        console.log("Firebase Auth State Changed. User ID:", window.userId, "Is Admin:", isAdminLoggedInState);
+                    } else {
+                        window.userId = null;
+                        isAdminLoggedInState = false;
+                        console.log("Firebase Auth State Changed. No user logged in.");
+                    }
+                    // Re-render the appropriate page based on current auth state
+                    if (isAdminLoggedInState) {
+                        renderAdminPanel();
+                    } else if (userName) { // If a regular user name is set
+                        renderHomePage();
+                    } else { // If no user name set (first visit or after logout)
+                        renderWelcomePage();
+                    }
+                });
+
+                // Set up real-time listeners for Firestore data
+                setupFirestoreListeners();
+
+            } catch (error) {
+                console.error("Error initializing Firebase or signing in:", error);
+                if (error.code === 'auth/admin-restricted-operation') {
+                    await showMessageModal(
+                        "Firebase Error",
+                        "Anonymous authentication might not be enabled. Please go to Firebase Console > Authentication > Sign-in method, and enable 'Anonymous' sign-in.",
+                        'error'
+                    );
+                } else {
+                    await showMessageModal(
+                        "Connection Error",
+                        "Failed to connect to Firebase backend. Some features may not work. Check console for details.",
+                        'error'
+                    );
+                }
+                
+                // Fallback to local storage data if Firebase initialization fails
+                userName = localStorage.getItem('userName') || '';
+                if (userName) {
+                    renderHomePage();
+                } else {
+                    renderWelcomePage();
+                }
+            }
+        }
+
+        // Sets up real-time listeners for Firestore collections
+        async function setupFirestoreListeners() {
+            if (!window.db) return;
+
+            const settingsDocRef = window.firebase.doc(window.db, `artifacts/${appId}/public/data/websiteSettings/current`);
+            window.firebase.onSnapshot(settingsDocRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    websiteSettings = docSnap.data();
+                    console.log("Website settings updated from Firestore:", websiteSettings);
+                } else {
+                    console.log("No website settings found in Firestore. Please run populateFirestore.html or add manually.");
+                }
+                document.getElementById('dynamic-page-title').textContent = websiteSettings.websiteTitle;
+                // Re-render relevant parts if settings change
+                if (document.getElementById('app-root').querySelector('header')) {
+                    if (isAdminLoggedInState) renderAdminPanel();
+                    else renderHomePage();
+                }
+            }, (error) => {
+                console.error("Error listening to website settings:", error);
+                showMessageModal("Data Error", `Failed to load website settings: ${error.message}`, 'error');
+            });
+
+            const sareesCollectionRef = window.firebase.collection(window.db, `artifacts/${appId}/public/data/sarees`);
+            window.firebase.onSnapshot(sareesCollectionRef, (snapshot) => {
+                const fetchedSarees = [];
+                snapshot.forEach(doc => {
+                    fetchedSarees.push({ id: doc.id, ...doc.data() });
+                });
+                sarees = fetchedSarees;
+                console.log("Sarees updated from Firestore:", sarees);
+                if (document.getElementById('sarees-grid')) {
+                    renderHomePage();
+                } else if (document.getElementById('existing-sarees-list')) {
+                    renderAdminPanel();
+                }
+            }, (error) => {
+                console.error("Error listening to sarees collection:", error);
+                showMessageModal("Data Error", `Failed to load sarees: ${error.message}`, 'error');
+            });
+        }
+
+        // --- Utility Functions (interacting with Firebase Storage & Firestore) ---
+
+        /**
+         * Uploads selected files to Firebase Storage and returns their download URLs.
+         * @param {FileList} files - The FileList object from an input type="file".
+         * @param {string} storagePathPrefix - The folder path in Firebase Storage (e.g., 'saree_images/' or 'website_assets/').
+         * @param {string|null} fixedFileName - Optional: if provided, the file will be uploaded with this name, overwriting existing.
+         * @returns {Promise<string[]>} An array of download URLs for the uploaded files.
+         */
+        async function uploadFilesAndGetUrls(files, storagePathPrefix, fixedFileName = null) {
+            if (!window.storage) {
+                console.error("Firebase Storage not initialized.");
+                await showMessageModal("Error", "Firebase Storage not initialized. Cannot upload files.", "error");
+                return [];
+            }
+            if (files.length === 0) {
+                return [];
+            }
+
+            const uploadPromises = Array.from(files).map(async (file) => {
+                const fileName = fixedFileName || `${Date.now()}_${file.name}`;
+                const storageRef = window.firebase.ref(window.storage, `${storagePathPrefix}${fileName}`);
+                
+                try {
+                    const uploadResult = await window.firebase.uploadBytes(storageRef, file);
+                    const downloadURL = await window.firebase.getDownloadURL(uploadResult.ref);
+                    console.log(`Uploaded ${file.name}, URL: ${downloadURL}`);
+                    return downloadURL;
+                } catch (error) {
+                    console.error(`Error uploading ${file.name}:`, error);
+                    await showMessageModal("Upload Error", `Failed to upload ${file.name}: ${error.message}`, "error");
+                    return null; // Return null for failed uploads
+                }
+            });
+
+            const urls = await Promise.all(uploadPromises);
+            return urls.filter(url => url !== null); // Filter out any failed uploads
+        }
+
+        /**
+         * Deletes a file from Firebase Storage given its download URL.
+         * @param {string} fileUrl - The download URL of the file to delete.
+         */
+        async function deleteFileFromStorage(fileUrl) {
+            if (!window.storage || !fileUrl || fileUrl.includes('placehold.co')) {
+                // Don't try to delete if storage not initialized, URL is empty, or it's a placeholder
+                return;
+            }
+            try {
+                // Firebase Storage URLs contain a path component that can be used to create a ref
+                // The actual path is usually after /o/ and before ?
+                const pathStartIndex = fileUrl.indexOf('/o/') + 3;
+                const pathEndIndex = fileUrl.indexOf('?');
+                let filePath = fileUrl.substring(pathStartIndex, pathEndIndex);
+                
+                // Decode the path if it contains URL-encoded characters (like spaces)
+                filePath = decodeURIComponent(filePath);
+
+                const fileRef = window.firebase.ref(window.storage, filePath);
+                await window.firebase.deleteObject(fileRef);
+                console.log(`Deleted file from Storage: ${filePath}`);
+            } catch (error) {
+                console.error(`Error deleting file from Storage (${fileUrl}):`, error);
+                await showMessageModal("Deletion Error", `Failed to delete file from storage: ${error.message}`, "error");
+            }
+        }
+
+
         function setAndPersistUserName(name) {
+            userName = name;
             localStorage.setItem('userName', name);
         }
 
-        // Function to get sarees from local storage or static data
-        function getSarees() {
-            const storedSarees = JSON.parse(localStorage.getItem('sarees') || '[]');
-            if (storedSarees.length > 0) {
-                return storedSarees;
-            } else {
-                const staticSarees = [
-                    {
-                        id: 'saree1',
-                        name: 'Kanjeevaram Silk Saree',
-                        price: '₹ 15,000',
-                        imageUrl: 'https://placehold.co/400x300/FFD700/8B0000?text=Kanjeevaram',
-                        description: 'A classic Kanjeevaram silk saree with intricate zari work, perfect for weddings and grand celebrations. Features a rich pallu and traditional motifs.',
-                        gallery: ['https://placehold.co/400x300/FFD700/8B0000?text=Kanjeevaram+1', 'https://placehold.co/400x300/FFD700/8B0000?text=Kanjeevaram+2']
-                    },
-                    {
-                        id: 'saree2',
-                        name: 'Banarasi Brocade Saree',
-                        price: '₹ 12,500',
-                        imageUrl: 'https://placehold.co/400x300/E5AA70/8B0000?text=Banarasi',
-                        description: 'Elegant Banarasi saree with rich brocade patterns, suitable for grand occasions. Hand-woven with fine silk and metallic threads.',
-                        gallery: ['https://placehold.co/400x300/E5AA70/8B0000?text=Banarasi+1', 'https://placehold.co/400x300/E5AA70/8B0000?text=Banarasi+2']
-                    },
-                    {
-                        id: 'saree3',
-                        name: 'Chanderi Cotton Silk Saree',
-                        price: '₹ 6,800',
-                        imageUrl: 'https://placehold.co/400x300/F0E68C/8B0000?text=Chanderi',
-                        description: 'Lightweight and comfortable Chanderi saree, ideal for daily wear or casual events. Known for its sheer texture and delicate zari work.',
-                        gallery: ['https://placehold.co/400x300/F0E68C/8B0000?text=Chanderi+1', 'https://placehold.co/400x300/F0E68C/8B0000?text=Chanderi+2']
-                    },
-                    {
-                        id: 'saree4',
-                        name: 'Patola Silk Saree',
-                        price: '₹ 22,000',
-                        imageUrl: 'https://placehold.co/400x300/DAA520/8B0000?text=Patola',
-                        description: 'Hand-woven Patola silk saree, known for its vibrant colors and geometric patterns. A double ikat weave from Gujarat, India.',
-                        gallery: ['https://placehold.co/400x300/DAA520/8B0000?text=Patola+1', 'https://placehold.co/400x300/DAA520/8B0000?text=Patola+2']
-                    },
-                    {
-                        id: 'saree5',
-                        name: 'Georgette Floral Saree',
-                        price: '₹ 4,500',
-                        imageUrl: 'https://placehold.co/400x300/FFB6C1/8B0000?text=Georgette',
-                        description: 'Flowy georgette saree with beautiful floral prints, perfect for summer and light occasions. Easy to drape and comfortable.',
-                        gallery: ['https://placehold.co/400x300/FFB6C1/8B0000?text=Georgette+1', 'https://placehold.co/400x300/FFB6C1/8B0000?text=Georgette+2']
-                    },
-                    {
-                        id: 'saree6',
-                        name: 'Mysore Silk Saree',
-                        price: '₹ 9,000',
-                        imageUrl: 'https://placehold.co/400x300/F4A460/8B0000?text=Mysore',
-                        description: 'Luxurious Mysore silk saree with subtle gold zari borders, known for its soft texture and rich sheen. Ideal for formal events.',
-                        gallery: ['https://placehold.co/400x300/F4A460/8B0000?text=Mysore+1', 'https://placehold.co/400x300/F4A460/8B0000?text=Mysore+2']
-                    },
-                    {
-                        id: 'saree7',
-                        name: 'Tussar Silk Saree',
-                        price: '₹ 8,200',
-                        imageUrl: 'https://placehold.co/400x300/CD853F/8B0000?text=Tussar',
-                        description: 'Natural golden-hued Tussar silk saree, prized for its unique texture and natural elegance. Often features tribal art or floral motifs.',
-                        gallery: ['https://placehold.co/400x300/CD853F/8B0000?text=Tussar+1', 'https://placehold.co/400x300/CD853F/8B0000?text=Tussar+2']
-                    },
-                    {
-                        id: 'saree8',
-                        name: 'Bandhani Saree',
-                        price: '₹ 5,500',
-                        imageUrl: 'https://placehold.co/400x300/F08080/8B0000?text=Bandhani',
-                        description: 'Vibrant Bandhani saree with traditional tie-dye patterns, originating from Rajasthan and Gujarat. Perfect for festive occasions.',
-                        gallery: ['https://placehold.co/400x300/F08080/8B0000?text=Bandhani+1', 'https://placehold.co/400x300/F08080/8B0000?text=Bandhani+2']
-                    },
-                ];
-                localStorage.setItem('sarees', JSON.stringify(staticSarees));
-                return staticSarees;
+        async function updateWebsiteSettingsInFirestore(newSettings) {
+            if (!window.db) {
+                console.error("Firestore not initialized.");
+                await showMessageModal("Error", "Firestore not initialized. Cannot update settings.", "error");
+                return;
+            }
+            try {
+                const settingsDocRef = window.firebase.doc(window.db, `artifacts/${appId}/public/data/websiteSettings/current`);
+                await window.firebase.setDoc(settingsDocRef, newSettings, { merge: true });
+                console.log("Website settings updated in Firestore.");
+            } catch (e) {
+                console.error("Error updating website settings:", e);
+                throw e; // Re-throw to be caught by calling function
+            }
+        }
+
+        async function addSareeToFirestore(saree) {
+            if (!window.db) {
+                console.error("Firestore not initialized.");
+                await showMessageModal("Error", "Firestore not initialized. Cannot add saree.", "error");
+                return;
+            }
+            try {
+                const sareesCollectionRef = window.firebase.collection(window.db, `artifacts/${appId}/public/data/sarees`);
+                await window.firebase.addDoc(sareesCollectionRef, saree);
+                console.log("Saree added to Firestore.");
+            } catch (e) {
+                console.error("Error adding saree:", e);
+                throw e;
+            }
+        }
+
+        async function updateSareeInFirestore(sareeId, updatedData) {
+            if (!window.db) {
+                console.error("Firestore not initialized.");
+                await showMessageModal("Error", "Firestore not initialized. Cannot update saree.", "error");
+                return;
+            }
+            try {
+                // Identify images removed from gallery for deletion from storage
+                const existingSaree = sarees.find(s => s.id === sareeId);
+                const oldGallery = existingSaree ? existingSaree.gallery || [] : [];
+                const newGallery = updatedData.gallery || [];
+
+                const removedImages = oldGallery.filter(url => !newGallery.includes(url));
+                for (const url of removedImages) {
+                    await deleteFileFromStorage(url); // Delete from storage
+                }
+
+                const sareeDocRef = window.firebase.doc(window.db, `artifacts/${appId}/public/data/sarees`, sareeId);
+                await window.firebase.setDoc(sareeDocRef, updatedData, { merge: true });
+                console.log("Saree updated in Firestore.");
+            } catch (e) {
+                console.error("Error updating saree:", e);
+                throw e;
+            }
+        }
+
+        async function deleteSareeFromFirestore(sareeId) {
+            if (!window.db) {
+                console.error("Firestore not initialized.");
+                await showMessageModal("Error", "Firestore not initialized. Cannot delete saree.", "error");
+                return;
+            }
+            try {
+                const sareeToDelete = sarees.find(s => s.id === sareeId);
+                if (sareeToDelete && sareeToDelete.gallery) {
+                    for (const imageUrl of sareeToDelete.gallery) {
+                        await deleteFileFromStorage(imageUrl); // Delete from storage
+                    }
+                }
+
+                const sareeDocRef = window.firebase.doc(window.db, `artifacts/${appId}/public/data/sarees`, sareeId);
+                await window.firebase.deleteDoc(sareeDocRef);
+                console.log("Saree deleted from Firestore.");
+            } catch (e) {
+                console.error("Error deleting saree:", e);
+                throw e;
             }
         }
 
         // --- Component Rendering Functions ---
 
-        // Renders the Welcome Page
         function renderWelcomePage() {
             const appRoot = document.getElementById('app-root');
             appRoot.innerHTML = `
                 <div class="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 to-red-100 p-4 font-sans">
                     <div class="bg-white p-8 sm:p-10 rounded-xl shadow-2xl w-full max-w-md text-center border-t-4 border-red-400">
                         <h2 class="text-3xl sm:text-4xl font-extrabold text-red-800 mb-4 sm:mb-6 leading-tight">Welcome to SIRI SAREE DIVINE!</h2>
-                        <p class="text-base sm:text-lg text-gray-700 mb-6 sm:mb-8">Enter your name.</p>
-                        <form id="name-form" class="space-y-4 sm:space-y-6">
-                            <input
-                                type="text"
-                                id="name-input"
-                                placeholder="Enter your name"
-                                class="w-full px-4 py-2 sm:px-5 sm:py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-base sm:text-lg"
-                                required
-                            />
+                        <p class="text-base sm:text-lg text-gray-700 mb-6 sm:mb-8">Enter your name to continue.</p>
+                        <form id="universal-login-form" class="space-y-4 sm:space-y-6">
+                            <div>
+                                <label for="user-identifier" class="sr-only">Your Name</label>
+                                <input
+                                    type="text"
+                                    id="user-identifier"
+                                    placeholder="Your Name"
+                                    class="w-full px-4 py-2 sm:px-5 sm:py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-red-500 focus:border-red-500 text-base sm:text-lg"
+                                    required
+                                />
+                            </div>
+                            <div id="password-field-container" class="hidden">
+                                <label for="password-input" class="sr-only">Password</label>
+                                <input
+                                    type="password"
+                                    id="password-input"
+                                    placeholder="Password"
+                                    class="w-full px-4 py-2 sm:px-5 sm:py-3 border border-gray-300 rounded-lg shadow-sm focus:ring-gray-500 focus:border-gray-500 text-base sm:text-lg"
+                                />
+                            </div>
+                            <p id="login-error" class="text-red-600 text-sm hidden"></p>
                             <button
                                 type="submit"
                                 class="w-full flex justify-center py-2 sm:py-3 px-4 border border-transparent rounded-lg shadow-lg text-lg sm:text-xl font-semibold text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-300 transform hover:scale-105"
@@ -161,44 +620,480 @@
                 </div>
             `;
 
-            document.getElementById('name-form').addEventListener('submit', (e) => {
+            const userIdentifierInput = document.getElementById('user-identifier');
+            const passwordFieldContainer = document.getElementById('password-field-container');
+            const passwordInput = document.getElementById('password-input');
+            const loginErrorDisplay = document.getElementById('login-error');
+            const universalLoginForm = document.getElementById('universal-login-form');
+
+            // Show/hide password field based on exact match with KNOWN_ADMIN_EMAIL
+            userIdentifierInput.addEventListener('input', () => {
+                if (userIdentifierInput.value.trim() === KNOWN_ADMIN_EMAIL) {
+                    passwordFieldContainer.classList.remove('hidden');
+                    passwordInput.setAttribute('required', 'true'); // Make password required for admin login
+                    userIdentifierInput.placeholder = "Admin Email"; // Update placeholder for clarity
+                } else {
+                    passwordFieldContainer.classList.add('hidden');
+                    passwordInput.removeAttribute('required');
+                    passwordInput.value = ''; // Clear password if not admin email
+                    loginErrorDisplay.classList.add('hidden'); // Hide error on input change
+                    userIdentifierInput.placeholder = "Your Name"; // Revert placeholder
+                }
+            });
+
+            universalLoginForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                const nameInput = document.getElementById('name-input');
-                const userName = nameInput.value.trim();
-                if (userName) {
-                    setAndPersistUserName(userName);
-                    renderHomePage(); // Render home page after name is set
+                const identifier = userIdentifierInput.value.trim();
+                const password = passwordInput.value.trim();
+
+                loginErrorDisplay.classList.add('hidden'); // Hide previous errors
+
+                if (identifier === KNOWN_ADMIN_EMAIL) {
+                    // Attempt Firebase Admin Login
+                    if (!password) {
+                        loginErrorDisplay.textContent = 'Please enter a password for admin login.';
+                        loginErrorDisplay.classList.remove('hidden');
+                        return;
+                    }
+                    try {
+                        await window.firebase.signInWithEmailAndPassword(window.auth, identifier, password);
+                        // onAuthStateChanged listener will handle rendering admin panel
+                    } catch (error) {
+                        console.error("Firebase Login Error:", error.message);
+                        loginErrorDisplay.textContent = `Admin login failed: ${error.message}`;
+                        loginErrorDisplay.classList.remove('hidden');
+                    }
+                } else if (identifier.includes('@')) {
+                    // User entered an email that is NOT the admin email
+                    loginErrorDisplay.textContent = 'Don\'t enter email, Use user name only.';
+                    loginErrorDisplay.classList.remove('hidden');
+                } else {
+                    // Regular User Login (by name)
+                    if (identifier) {
+                        setAndPersistUserName(identifier);
+                        renderHomePage();
+                    }
                 }
             });
         }
 
-        // Renders the Home Page
-        function renderHomePage() {
-            const userName = getUserName();
-            const sarees = getSarees();
+        function renderAdminPanel(sareeToEdit = null) {
+            if (!isAdminLoggedInState) {
+                renderWelcomePage();
+                return;
+            }
+
             const appRoot = document.getElementById('app-root');
+            const currentSarees = sarees;
+            const currentWebsiteSettings = websiteSettings;
+
+            appRoot.innerHTML = `
+                <div class="min-h-screen bg-gradient-to-br from-gray-50 to-gray-200 font-sans text-gray-800 flex flex-col">
+                    <header class="bg-gray-800 shadow-xl py-4 px-6 sm:py-5 sm:px-8 flex flex-col sm:flex-row justify-between items-center sticky top-0 z-10">
+                        <div class="flex items-center mb-2 sm:mb-0">
+                            <h1 class="text-3xl sm:text-4xl font-extrabold text-white tracking-wide">Admin Panel</h1>
+                        </div>
+                        <div class="flex items-center space-x-3 sm:space-x-4">
+                            <span class="text-gray-300 text-base sm:text-lg">Logged in as Admin</span>
+                            <button id="admin-logout-btn" class="bg-red-500 text-white py-2 px-4 rounded-md hover:bg-red-600 transition-colors duration-300 shadow-md text-sm sm:text-base">Logout</button>
+                            <button id="view-website-btn" class="bg-yellow-500 text-gray-800 py-2 px-4 rounded-md hover:bg-yellow-600 transition-colors duration-300 shadow-md text-sm sm:text-base">View Website</button>
+                        </div>
+                    </header>
+
+                    <main class="container mx-auto p-6 sm:p-8 flex-grow">
+                        <div class="bg-white p-6 sm:p-8 rounded-xl shadow-lg border-t-4 border-gray-500 mb-8">
+                            <h2 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-6">Website Customization</h2>
+                            <form id="website-settings-form" class="space-y-4">
+                                <div>
+                                    <label for="website-title" class="block text-sm font-medium text-gray-700 mb-1">Website Title</label>
+                                    <input type="text" id="website-title" value="${currentWebsiteSettings.websiteTitle}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-gray-500 focus:border-gray-500" required>
+                                </div>
+                                <div>
+                                    <label for="logo-file-input" class="block text-sm font-medium text-gray-700 mb-1">Upload Logo Image</label>
+                                    <input type="file" id="logo-file-input" accept="image/*" class="w-full text-sm text-gray-500
+                                        file:mr-4 file:py-2 file:px-4
+                                        file:rounded-full file:border-0
+                                        file:text-sm file:font-semibold
+                                        file:bg-purple-50 file:text-purple-700
+                                        hover:file:bg-purple-100 cursor-pointer
+                                    "/>
+                                    <div id="logo-preview-container" class="mt-2 flex items-center space-x-4">
+                                        <img id="logo-preview" src="${currentWebsiteSettings.logoUrl}" alt="Logo Preview" class="h-16 w-16 object-contain rounded-full border border-gray-200" onerror="this.onerror=null;this.src='https://placehold.co/50x50/8B0000/FFD700?text=Logo';">
+                                        ${currentWebsiteSettings.logoUrl && !currentWebsiteSettings.logoUrl.includes('placehold.co') ? `
+                                            <button type="button" id="delete-logo-btn" class="bg-red-500 text-white py-1 px-3 rounded-md text-sm hover:bg-red-600 transition-colors duration-200">Delete Logo</button>
+                                        ` : ''}
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-1">Upload a new image to replace the current logo.</p>
+                                </div>
+                                <p id="settings-message" class="text-center text-sm hidden"></p>
+                                <button type="submit" class="w-full bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-800 transition-colors duration-300 shadow-md text-lg transform hover:scale-105">Save Settings</button>
+                            </form>
+                        </div>
+
+                        <div class="bg-white p-6 sm:p-8 rounded-xl shadow-lg border-t-4 border-gray-500 mb-8">
+                            <h2 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-6">${sareeToEdit ? 'Edit Saree' : 'Add New Saree'}</h2>
+                            <form id="saree-form" class="space-y-4">
+                                <input type="hidden" id="saree-id" value="${sareeToEdit ? sareeToEdit.id : ''}">
+                                <div>
+                                    <label for="saree-name" class="block text-sm font-medium text-gray-700 mb-1">Saree Name</label>
+                                    <input type="text" id="saree-name" value="${sareeToEdit ? sareeToEdit.name : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-gray-500 focus:border-gray-500" required>
+                                </div>
+                                <div>
+                                    <label for="saree-price" class="block text-sm font-medium text-gray-700 mb-1">Price (e.g., ₹ 5,000)</label>
+                                    <input type="text" id="saree-price" value="${sareeToEdit ? sareeToEdit.price : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-gray-500 focus:border-gray-500" required>
+                                </div>
+                                <div>
+                                    <label for="saree-files" class="block text-sm font-medium text-gray-700 mb-1">Upload New Images (optional)</label>
+                                    <input type="file" id="saree-files" multiple accept="image/*" class="w-full text-sm text-gray-500
+                                        file:mr-4 file:py-2 file:px-4
+                                        file:rounded-full file:border-0
+                                        file:text-sm file:font-semibold
+                                        file:bg-violet-50 file:text-violet-700
+                                        hover:file:bg-violet-100 cursor-pointer
+                                    "/>
+                                    <div id="file-previews" class="flex flex-wrap gap-2 mt-2"></div>
+                                    <p class="text-xs text-gray-500 mt-1">Select one or more images. For editing, new uploads will be added to the gallery. For new saree, these will be the initial gallery.</p>
+                                </div>
+                                <div>
+                                    <label for="saree-image-urls" class="block text-sm font-medium text-gray-700 mb-1">Current Gallery Images (click 'X' to remove)</label>
+                                    <textarea id="saree-image-urls" rows="3" placeholder="URLs will appear here from current gallery or after upload" class="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 focus:ring-gray-500 focus:border-gray-500" readonly>${sareeToEdit && sareeToEdit.gallery ? sareeToEdit.gallery.join(', ') : ''}</textarea>
+                                    <div id="saree-gallery-preview" class="flex flex-wrap gap-2 mt-2">
+                                        <!-- Existing images with delete buttons will be rendered here -->
+                                    </div>
+                                </div>
+                                <div>
+                                    <label for="saree-description" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                                    <textarea id="saree-description" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-gray-500 focus:border-gray-500" required>${sareeToEdit ? sareeToEdit.description : ''}</textarea>
+                                </div>
+                                <p id="saree-message" class="text-center text-sm hidden"></p>
+                                <button type="submit" class="w-full bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-800 transition-colors duration-300 shadow-md text-lg transform hover:scale-105">
+                                    ${sareeToEdit ? 'Update Saree' : 'Add Saree'}
+                                </button>
+                                ${sareeToEdit ? '<button type="button" id="cancel-edit-btn" class="w-full mt-2 bg-gray-400 text-white py-2 px-4 rounded-lg hover:bg-gray-500 transition-colors duration-300 shadow-md text-lg">Cancel Edit</button>' : ''}
+                            </form>
+                        </div>
+
+                        <div class="bg-white p-6 sm:p-8 rounded-xl shadow-lg border-t-4 border-gray-500">
+                            <h2 class="text-2xl sm:text-3xl font-bold text-gray-800 mb-6">Existing Sarees</h2>
+                            <div id="existing-sarees-list" class="space-y-4">
+                                <!-- Existing sarees will be listed here -->
+                            </div>
+                            ${currentSarees.length === 0 ? `<p class="text-center text-gray-600 text-lg sm:text-xl py-4">No sarees added yet.</p>` : ''}
+                        </div>
+                    </main>
+                </div>
+            `;
+
+            // Elements for Website Customization
+            const websiteSettingsForm = document.getElementById('website-settings-form');
+            const logoFileInput = document.getElementById('logo-file-input');
+            const logoPreview = document.getElementById('logo-preview');
+            const deleteLogoBtn = document.getElementById('delete-logo-btn');
+            const settingsMessage = document.getElementById('settings-message');
+
+            // Elements for Saree Form
+            const sareeForm = document.getElementById('saree-form');
+            const sareeFilesInput = document.getElementById('saree-files');
+            const filePreviewsContainer = document.getElementById('file-previews');
+            const sareeImageURLsInput = document.getElementById('saree-image-urls');
+            const sareeGalleryPreview = document.getElementById('saree-gallery-preview');
+            const sareeMessage = document.getElementById('saree-message');
+
+            // --- Website Customization Logic ---
+            logoFileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        logoPreview.src = event.target.result;
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    // If no file selected, revert preview to current settings logo or default
+                    logoPreview.src = currentWebsiteSettings.logoUrl || 'https://placehold.co/50x50/8B0000/FFD700?text=Logo';
+                }
+            });
+
+            if (deleteLogoBtn) {
+                deleteLogoBtn.addEventListener('click', async () => {
+                    const confirmed = await showConfirmModal(
+                        "Confirm Deletion",
+                        "Are you sure you want to delete the custom logo? It will revert to a default placeholder."
+                    );
+                    if (confirmed) {
+                        try {
+                            settingsMessage.textContent = 'Deleting logo...';
+                            settingsMessage.className = 'text-blue-600 text-center text-sm block';
+                            await deleteFileFromStorage(currentWebsiteSettings.logoUrl);
+                            // Update Firestore to use a placeholder
+                            await updateWebsiteSettingsInFirestore({ logoUrl: 'https://placehold.co/50x50/8B0000/FFD700?text=Logo' });
+                            settingsMessage.textContent = 'Logo deleted and reverted to default!';
+                            settingsMessage.className = 'text-green-600 text-center text-sm block';
+                            // onSnapshot listener will re-render and update UI
+                        } catch (error) {
+                            settingsMessage.textContent = `Error deleting logo: ${error.message}`;
+                            settingsMessage.className = 'text-red-600 text-center text-sm block';
+                        }
+                    }
+                });
+            }
+
+            websiteSettingsForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const websiteTitle = document.getElementById('website-title').value;
+                const logoFile = logoFileInput.files[0];
+                let newLogoUrl = currentWebsiteSettings.logoUrl; // Default to existing logo URL
+
+                settingsMessage.classList.add('hidden'); // Clear previous messages
+
+                if (logoFile) {
+                    settingsMessage.textContent = 'Uploading logo... Please wait.';
+                    settingsMessage.className = 'text-blue-600 text-center text-sm block';
+                    const uploadedUrls = await uploadFilesAndGetUrls([logoFile], 'website_assets/', 'logo.png'); // Fixed filename for logo
+                    if (uploadedUrls.length > 0) {
+                        newLogoUrl = uploadedUrls[0];
+                        settingsMessage.textContent = 'Logo uploaded successfully!';
+                        settingsMessage.className = 'text-green-600 text-center text-sm block';
+                    } else {
+                        settingsMessage.textContent = 'Logo upload failed. Please try again.';
+                        settingsMessage.className = 'text-red-600 text-center text-sm block';
+                        return; // Stop submission if logo upload fails
+                    }
+                }
+
+                if (!websiteTitle) {
+                    settingsMessage.textContent = 'Please fill the website title.';
+                    settingsMessage.className = 'text-red-600 text-center text-sm block';
+                    return;
+                }
+
+                try {
+                    await updateWebsiteSettingsInFirestore({ websiteTitle, logoUrl: newLogoUrl });
+                    settingsMessage.textContent = 'Website settings saved successfully!';
+                    settingsMessage.className = 'text-green-600 text-center text-sm block';
+                } catch (error) {
+                    settingsMessage.textContent = `Error: ${error.message}`;
+                    settingsMessage.className = 'text-red-600 text-center text-sm block';
+                }
+            });
+
+
+            // --- Saree Form Logic ---
+
+            // Function to render saree gallery previews with delete buttons
+            const renderSareeGalleryPreviews = (urls) => {
+                sareeGalleryPreview.innerHTML = ''; // Clear existing
+                urls.forEach(url => {
+                    const div = document.createElement('div');
+                    div.className = 'image-preview-item';
+                    div.innerHTML = `
+                        <img src="${url}" alt="Image Preview" onerror="this.onerror=null;this.src='https://placehold.co/96x96/FFD700/8B0000?text=Error';">
+                        <button type="button" class="delete-img-btn" data-url="${url}">&times;</button>
+                    `;
+                    sareeGalleryPreview.appendChild(div);
+                });
+
+                // Add event listeners to newly created delete buttons
+                sareeGalleryPreview.querySelectorAll('.delete-img-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const urlToRemove = e.target.dataset.url;
+                        let currentUrls = sareeImageURLsInput.value.split(',').map(u => u.trim()).filter(u => u);
+                        const updatedUrls = currentUrls.filter(u => u !== urlToRemove);
+                        sareeImageURLsInput.value = updatedUrls.join(', ');
+                        renderSareeGalleryPreviews(updatedUrls); // Re-render preview
+                    });
+                });
+            };
+
+            // Initial render of gallery if editing
+            if (sareeToEdit && sareeToEdit.gallery) {
+                renderSareeGalleryPreviews(sareeToEdit.gallery);
+            }
+
+            // Handle file input change: display previews
+            sareeFilesInput.addEventListener('change', (e) => {
+                filePreviewsContainer.innerHTML = ''; // Clear previous file previews
+
+                const files = e.target.files;
+                if (files.length > 0) {
+                    Array.from(files).forEach(file => {
+                        const reader = new FileReader();
+                        reader.onload = (event) => {
+                            const img = document.createElement('img');
+                            img.src = event.target.result;
+                            img.className = "h-24 w-24 object-cover rounded-md border border-gray-200";
+                            filePreviewsContainer.appendChild(img);
+                        };
+                        reader.readAsDataURL(file);
+                    });
+                }
+            });
+
+            // Populate existing sarees list
+            const existingSareesList = document.getElementById('existing-sarees-list');
+            currentSarees.forEach(saree => {
+                const sareeListItem = document.createElement('div');
+                sareeListItem.className = "flex flex-col sm:flex-row items-center justify-between p-4 border border-gray-200 rounded-lg shadow-sm bg-gray-50";
+                sareeListItem.innerHTML = `
+                    <div class="flex items-center mb-2 sm:mb-0 w-full sm:w-auto">
+                        <img src="${saree.gallery && saree.gallery[0] ? saree.gallery[0] : 'https://placehold.co/60x60/FFD700/8B0000?text=Saree'}" alt="${saree.name}" class="h-16 w-16 object-cover rounded-md mr-4" onerror="this.onerror=null;this.src='https://placehold.co/60x60/FFD700/8B0000?text=Saree';">
+                        <div>
+                            <p class="font-semibold text-gray-900 text-lg">${saree.name}</p>
+                            <p class="text-gray-700 text-sm">${saree.price}</p>
+                        </div>
+                    </div>
+                    <div class="flex space-x-2 mt-2 sm:mt-0">
+                        <button data-id="${saree.id}" class="edit-saree-btn bg-blue-500 text-white py-1 px-3 rounded-md hover:bg-blue-600 transition-colors duration-200 text-sm">Edit</button>
+                        <button data-id="${saree.id}" class="delete-saree-btn bg-red-500 text-white py-1 px-3 rounded-md hover:bg-red-600 transition-colors duration-200 text-sm">Delete</button>
+                    </div>
+                `;
+                existingSareesList.appendChild(sareeListItem);
+            });
+
+            document.getElementById('admin-logout-btn').addEventListener('click', async () => {
+                try {
+                    await window.firebase.signOut(window.auth);
+                } catch (error) {
+                    console.error("Error logging out:", error);
+                    await showMessageModal("Logout Failed", `Error logging out: ${error.message}`, "error");
+                }
+            });
+
+            document.getElementById('view-website-btn').addEventListener('click', () => {
+                renderHomePage();
+            });
+
+            sareeForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const id = document.getElementById('saree-id').value;
+                const name = document.getElementById('saree-name').value;
+                const price = document.getElementById('saree-price').value;
+                const description = document.getElementById('saree-description').value;
+                const filesToUpload = sareeFilesInput.files;
+
+                if (!name || !price || !description) {
+                    sareeMessage.textContent = 'Please fill all required fields (Name, Price, Description).';
+                    sareeMessage.className = 'text-red-600 text-center text-sm block';
+                    return;
+                }
+
+                let finalImageUrls = sareeImageURLsInput.value.split(',').map(u => u.trim()).filter(u => u); // Start with existing URLs
+
+                if (filesToUpload.length > 0) {
+                    sareeMessage.textContent = 'Uploading new images... Please wait.';
+                    sareeMessage.className = 'text-blue-600 text-center text-sm block';
+                    const uploadedUrls = await uploadFilesAndGetUrls(filesToUpload, 'saree_images/');
+                    if (uploadedUrls.length > 0) {
+                        finalImageUrls = [...finalImageUrls, ...uploadedUrls]; // Append new URLs
+                        sareeMessage.textContent = 'Images uploaded successfully!';
+                        sareeMessage.className = 'text-green-600 text-center text-sm block';
+                    } else {
+                        sareeMessage.textContent = 'New image upload failed. Please try again.';
+                        sareeMessage.className = 'text-red-600 text-center text-sm block';
+                        return;
+                    }
+                }
+
+                if (finalImageUrls.length === 0) {
+                    sareeMessage.textContent = 'Please upload at least one image or keep existing images for the saree.';
+                    sareeMessage.className = 'text-red-600 text-center text-sm block';
+                    return;
+                }
+
+                const sareeData = {
+                    name,
+                    price,
+                    imageUrl: finalImageUrls[0], // First image as main image
+                    gallery: finalImageUrls, // All uploaded images for gallery
+                    description,
+                };
+
+                try {
+                    if (id) {
+                        await updateSareeInFirestore(id, sareeData);
+                        await showMessageModal("Success", "Saree updated successfully!", "success");
+                    } else {
+                        await addSareeToFirestore(sareeData);
+                        await showMessageModal("Success", "Saree added successfully!", "success");
+                    }
+                    // Clear form after successful submission
+                    document.getElementById('saree-id').value = '';
+                    document.getElementById('saree-name').value = '';
+                    document.getElementById('saree-price').value = '';
+                    document.getElementById('saree-description').value = '';
+                    sareeFilesInput.value = ''; // Clear file input
+                    filePreviewsContainer.innerHTML = ''; // Clear file previews
+                    sareeImageURLsInput.value = ''; // Clear URL textarea
+                    sareeGalleryPreview.innerHTML = ''; // Clear existing gallery preview
+                } catch (error) {
+                    await showMessageModal("Error", `Failed to save saree: ${error.message}`, "error");
+                }
+            });
+
+            if (sareeToEdit) {
+                document.getElementById('cancel-edit-btn').addEventListener('click', () => renderAdminPanel());
+            }
+
+            document.querySelectorAll('.edit-saree-btn').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    const sareeId = e.target.dataset.id;
+                    const sareeToEdit = currentSarees.find(s => s.id === sareeId);
+                    if (sareeToEdit) {
+                        renderAdminPanel(sareeToEdit);
+                    }
+                });
+            });
+
+            document.querySelectorAll('.delete-saree-btn').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const sareeId = e.target.dataset.id;
+                    const confirmed = await showConfirmModal(
+                        "Confirm Deletion",
+                        "Are you sure you want to delete this saree? This action cannot be undone and will delete all associated images."
+                    );
+                    if (confirmed) {
+                        try {
+                            await deleteSareeFromFirestore(sareeId);
+                            await showMessageModal("Success", "Saree deleted successfully!", "success");
+                        } catch (error) {
+                            await showMessageModal("Error", `Failed to delete saree: ${error.message}`, "error");
+                        }
+                    }
+                });
+            });
+        }
+
+        function renderHomePage() {
+            const appRoot = document.getElementById('app-root');
+            const currentSarees = sarees;
+            const currentWebsiteSettings = websiteSettings;
+
+            document.getElementById('dynamic-page-title').textContent = currentWebsiteSettings.websiteTitle;
 
             appRoot.innerHTML = `
                 <div class="min-h-screen bg-gradient-to-br from-yellow-50 to-red-50 font-sans text-gray-800 flex flex-col">
                     <header class="bg-gradient-to-r from-red-600 to-yellow-600 shadow-xl py-4 px-6 sm:py-5 sm:px-8 flex flex-col sm:flex-row justify-between items-center sticky top-0 z-10">
                         <div class="flex items-center mb-2 sm:mb-0">
                             <img
-                                src="https://placehold.co/50x50/8B0000/FFD700?text=Logo"
-                                alt="SIRI SAREE DIVINE Logo"
+                                src="${currentWebsiteSettings.logoUrl}"
+                                alt="${currentWebsiteSettings.websiteTitle} Logo"
                                 class="h-10 w-10 sm:h-12 sm:w-12 mr-3 sm:mr-4 rounded-full border-2 border-yellow-300 shadow-md"
+                                onerror="this.onerror=null;this.src='https://placehold.co/50x50/8B0000/FFD700?text=Logo';"
                             />
-                            <h1 class="text-3xl sm:text-4xl font-extrabold text-yellow-100 tracking-wide">SIRI SAREE DIVINE</h1>
+                            <h1 class="text-3xl sm:text-4xl font-extrabold text-yellow-100 tracking-wide">${currentWebsiteSettings.websiteTitle}</h1>
                         </div>
                         <div class="flex items-center space-x-3 sm:space-x-4">
                             <span class="text-yellow-100 text-base sm:text-lg">Welcome, <span class="font-semibold text-yellow-300">${userName || 'Guest'}</span>!</span>
+                            ${isAdminLoggedInState ? `<button id="go-to-admin-btn" class="bg-yellow-500 text-gray-800 py-2 px-4 rounded-md hover:bg-yellow-600 transition-colors duration-300 shadow-md text-sm sm:text-base">Admin Panel</button>` : ''}
+                            ${userName ? `<button id="sign-out-btn" class="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 transition-colors duration-300 shadow-md text-sm sm:text-base">Sign Out</button>` : ''}
                         </div>
                     </header>
 
                     <main class="container mx-auto p-6 sm:p-8 flex-grow">
                         <div id="message-container"></div>
                         <div id="sarees-grid" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 sm:gap-8 lg:gap-10">
-                            </div>
-                        ${sarees.length === 0 ? `<div class="text-center text-gray-600 text-lg sm:text-xl py-10 sm:py-12">No exquisite sarees available yet.</div>` : ''}
+                        </div>
+                        ${currentSarees.length === 0 ? `<div class="text-center text-gray-600 text-lg sm:text-xl py-10 sm:py-12">No exquisite sarees available yet.</div>` : ''}
                     </main>
 
                     <div id="saree-detail-modal-container"></div>
@@ -206,12 +1101,12 @@
             `;
 
             const sareesGrid = document.getElementById('sarees-grid');
-            sarees.forEach(saree => {
+            currentSarees.forEach(saree => {
                 const sareeCard = document.createElement('div');
                 sareeCard.className = "bg-white rounded-xl shadow-lg hover:shadow-2xl overflow-hidden transform transition-all duration-300 hover:scale-105 cursor-pointer border-2 border-transparent hover:border-red-300";
                 sareeCard.innerHTML = `
                     <img
-                        src="${saree.imageUrl || `https://placehold.co/400x300/FFD700/8B0000?text=Elegant+Saree`}"
+                        src="${saree.gallery && saree.gallery[0] ? saree.gallery[0] : `https://placehold.co/400x300/FFD700/8B0000?text=Elegant+Saree`}"
                         alt="${saree.name}"
                         class="w-full h-48 object-cover"
                         onerror="this.onerror=null;this.src='https://placehold.co/400x300/FFD700/8B0000?text=Elegant+Saree';"
@@ -219,20 +1114,52 @@
                     <div class="p-4 bg-gradient-to-t from-yellow-50 to-white">
                         <h3 class="text-xl font-semibold text-red-800 mb-2">${saree.name}</h3>
                         <p class="text-gray-700 mb-2 text-sm md:text-base truncate">${saree.description}</p>
-                       
+                        <p class="text-2xl md:text-3xl font-bold text-orange-700">${saree.price}</p>
                     </div>
                 `;
                 sareeCard.addEventListener('click', () => renderSareeDetailModal(saree));
                 sareesGrid.appendChild(sareeCard);
             });
+
+            if (isAdminLoggedInState) {
+                document.getElementById('go-to-admin-btn').addEventListener('click', renderAdminPanel);
+            }
+            if (userName) { // Only add sign out button if a regular user is "logged in"
+                document.getElementById('sign-out-btn').addEventListener('click', () => {
+                    setAndPersistUserName(''); // Clear user name
+                    renderWelcomePage(); // Go back to welcome screen
+                });
+            }
         }
 
-        // Renders the Saree Detail Modal
         function renderSareeDetailModal(saree) {
             const modalContainer = document.getElementById('saree-detail-modal-container');
             const whatsappNumber = '918125945507';
             const message = encodeURIComponent(`Hello, I am interested in the Saree: "${saree.name}" (Price: ${saree.price}). Please provide more details.`);
             const whatsappLink = `https://wa.me/${whatsappNumber}?text=${message}`;
+
+            let currentImageIndex = 0;
+
+            function updateModalImage() {
+                const mainImage = modalContainer.querySelector('#modal-main-image');
+                if (mainImage && saree.gallery && saree.gallery.length > 0) {
+                    mainImage.src = saree.gallery[currentImageIndex];
+                }
+                const prevButton = modalContainer.querySelector('#modal-prev-btn');
+                const nextButton = modalContainer.querySelector('#modal-next-btn');
+                if (prevButton) prevButton.disabled = currentImageIndex === 0;
+                if (nextButton) nextButton.disabled = currentImageIndex === (saree.gallery.length - 1);
+
+                modalContainer.querySelectorAll('.thumbnail-image').forEach((thumb, idx) => {
+                    if (idx === currentImageIndex) {
+                        thumb.classList.add('border-red-600');
+                        thumb.classList.remove('border-transparent');
+                    } else {
+                        thumb.classList.remove('border-red-600');
+                        thumb.classList.add('border-transparent');
+                    }
+                });
+            }
 
             modalContainer.innerHTML = `
                 <div id="saree-modal-backdrop" class="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center p-4 z-50 overflow-y-auto">
@@ -244,13 +1171,31 @@
                         </button>
 
                         <div class="flex flex-col md:flex-row gap-6 md:gap-8">
-                            <div class="md:w-1/2 flex justify-center items-center">
+                            <div class="md:w-1/2 flex flex-col justify-center items-center relative">
                                 <img
-                                    src="${saree.imageUrl || `https://placehold.co/600x400/FFD700/8B0000?text=Saree+Detail`}"
+                                    id="modal-main-image"
+                                    src="${saree.gallery && saree.gallery[0] ? saree.gallery[0] : `https://placehold.co/600x400/FFD700/8B0000?text=Saree+Detail`}"
                                     alt="${saree.name}"
                                     class="w-full h-auto max-h-80 md:max-h-full rounded-lg object-contain shadow-md border border-gray-200"
                                     onerror="this.onerror=null;this.src='https://placehold.co/600x400/FFD700/8B0000?text=Saree+Detail';"
                                 />
+                                ${saree.gallery && saree.gallery.length > 1 ? `
+                                <button id="modal-prev-btn" class="absolute left-2 top-1/2 -translate-y-1/2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-75 transition-colors duration-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </button>
+                                <button id="modal-next-btn" class="absolute right-2 top-1/2 -translate-y-1/2 bg-black bg-opacity-50 text-white p-2 rounded-full hover:bg-opacity-75 transition-colors duration-200">
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                    </svg>
+                                </button>
+                                <div class="flex flex-wrap justify-center gap-2 mt-4">
+                                    ${saree.gallery.map((url, index) => `
+                                        <img src="${url}" class="thumbnail-image h-16 w-16 object-cover rounded-md border-2 border-transparent cursor-pointer hover:border-red-400 ${index === currentImageIndex ? 'border-red-600' : ''}" data-index="${index}" alt="Thumbnail ${index + 1}" onerror="this.onerror=null;this.src='https://placehold.co/64x64/FFD700/8B0000?text=Error';">
+                                    `).join('')}
+                                </div>
+                                ` : ''}
                             </div>
                             <div class="md:w-1/2 flex flex-col justify-between pt-4 md:pt-0">
                                 <div>
@@ -272,7 +1217,6 @@
                 </div>
             `;
 
-            // Add event listeners for closing the modal
             document.getElementById('close-modal-btn').addEventListener('click', closeSareeDetailModal);
             document.getElementById('saree-modal-backdrop').addEventListener('click', (e) => {
                 if (e.target.id === 'saree-modal-backdrop') {
@@ -280,30 +1224,40 @@
                 }
             });
             document.addEventListener('keydown', handleEscKeyModalClose);
+
+            if (saree.gallery && saree.gallery.length > 1) {
+                document.getElementById('modal-prev-btn').addEventListener('click', () => {
+                    currentImageIndex = (currentImageIndex - 1 + saree.gallery.length) % saree.gallery.length;
+                    updateModalImage();
+                });
+                document.getElementById('modal-next-btn').addEventListener('click', () => {
+                    currentImageIndex = (currentImageIndex + 1) % saree.gallery.length;
+                    updateModalImage();
+                });
+                document.querySelectorAll('.thumbnail-image').forEach(thumbnail => {
+                    thumbnail.addEventListener('click', (e) => {
+                        currentImageIndex = parseInt(e.target.dataset.index);
+                        updateModalImage();
+                    });
+                });
+            }
+            updateModalImage();
         }
 
-        // Closes the Saree Detail Modal
         function closeSareeDetailModal() {
             const modalContainer = document.getElementById('saree-detail-modal-container');
-            modalContainer.innerHTML = ''; // Clear modal content
+            modalContainer.innerHTML = '';
             document.removeEventListener('keydown', handleEscKeyModalClose);
         }
 
-        // Handles Escape key for modal close
         function handleEscKeyModalClose(event) {
             if (event.key === 'Escape') {
                 closeSareeDetailModal();
             }
         }
 
-        // --- Initial Render Logic ---
         window.onload = function() {
-            const userName = getUserName();
-            if (userName) {
-                renderHomePage();
-            } else {
-                renderWelcomePage();
-            }
+            initFirebase();
         };
     </script>
 </body>
